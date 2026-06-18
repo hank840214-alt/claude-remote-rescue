@@ -85,8 +85,8 @@ When using the bundled `claude-remote-rescue` skill, the agent should:
 ## Adapters
 
 - **Claude Code CLI**: use `adapters/claude-code/install.zsh` to install the skill to `~/.claude/skills`, or run Claude with `--plugin-dir adapters/claude-code/plugin`.
-- **Hermes**: use `adapters/hermes/install.zsh` to copy the same skill into `~/.hermes/skills/autonomous-ai-agents/claude-remote-rescue`. Hermes can preload it with `--skills claude-remote-rescue`.
-- **Antigravity**: `AGENTS.md` and `adapters/antigravity/AGENTS.md` provide open-standard agent instructions. The macOS app binary is not treated as the CLI; `adapters/antigravity/verify.zsh` reports whether a real CLI entrypoint is available.
+- **Hermes**: use `adapters/hermes/install.zsh` to copy the same skill into `~/.hermes/skills/autonomous-ai-agents/claude-remote-rescue`. Hermes can preload it with `--skills claude-remote-rescue`. UI rescue also needs `cua-driver` and macOS Accessibility/Screen Recording permissions.
+- **Antigravity**: `AGENTS.md` and `adapters/antigravity/AGENTS.md` provide open-standard agent instructions. The macOS app binary is not treated as the CLI; `adapters/antigravity/verify.zsh` reports whether a real CLI entrypoint is available and, if not, only verifies adapter assets.
 
 ## Verification
 
