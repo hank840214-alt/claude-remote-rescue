@@ -1,0 +1,194 @@
+#!/usr/bin/env zsh
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  claude-remote [path] [options]
+
+Start a Claude Code Remote Control server in any working directory.
+
+Defaults:
+  - path: current directory
+  - spawn: worktree when inside a git repo, otherwise same-dir
+  - name: "<project-or-folder> <branch> remote" for git repos, otherwise "<folder> remote"
+
+Options:
+  -n, --name <name>              Name shown in claude.ai/code
+  -s, --spawn <mode>             auto, same-dir, worktree, or session
+      --same-dir                 Shortcut for --spawn same-dir
+      --worktree                 Shortcut for --spawn worktree
+      --session                  Shortcut for --spawn session
+      --capacity <N>             Max concurrent sessions (default: 32)
+      --permission-mode <mode>   acceptEdits, auto, bypassPermissions, default, dontAsk, or plan
+      --no-create-session-in-dir Pass through to Claude remote-control
+      --create-session-in-dir    Pass through to Claude remote-control
+      --print                    Print the resolved command without running it
+  -h, --help                     Show this help
+
+Examples:
+  claude-remote
+  claude-remote ~/project
+  claude-remote . --name "mobile session" --same-dir
+EOF
+}
+
+die() {
+  print -u2 -- "claude-remote: $*"
+  exit 1
+}
+
+target_dir="${PWD}"
+target_set=0
+session_name=""
+spawn="auto"
+capacity="32"
+permission_mode=""
+create_session_flag=""
+print_only=0
+passthrough=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    -n|--name)
+      [[ $# -ge 2 ]] || die "--name requires a value"
+      session_name="$2"
+      shift 2
+      ;;
+    --name=*)
+      session_name="${1#--name=}"
+      shift
+      ;;
+    -s|--spawn)
+      [[ $# -ge 2 ]] || die "--spawn requires a value"
+      spawn="$2"
+      shift 2
+      ;;
+    --spawn=*)
+      spawn="${1#--spawn=}"
+      shift
+      ;;
+    --same-dir)
+      spawn="same-dir"
+      shift
+      ;;
+    --worktree)
+      spawn="worktree"
+      shift
+      ;;
+    --session)
+      spawn="session"
+      shift
+      ;;
+    --capacity)
+      [[ $# -ge 2 ]] || die "--capacity requires a value"
+      capacity="$2"
+      shift 2
+      ;;
+    --capacity=*)
+      capacity="${1#--capacity=}"
+      shift
+      ;;
+    --permission-mode)
+      [[ $# -ge 2 ]] || die "--permission-mode requires a value"
+      permission_mode="$2"
+      shift 2
+      ;;
+    --permission-mode=*)
+      permission_mode="${1#--permission-mode=}"
+      shift
+      ;;
+    --no-create-session-in-dir|--create-session-in-dir)
+      create_session_flag="$1"
+      shift
+      ;;
+    --print)
+      print_only=1
+      shift
+      ;;
+    --)
+      shift
+      passthrough+=("$@")
+      break
+      ;;
+    -*)
+      passthrough+=("$1")
+      shift
+      ;;
+    *)
+      if [[ "$target_set" -eq 1 ]]; then
+        die "multiple paths provided: '$target_dir' and '$1'"
+      fi
+      target_dir="$1"
+      target_set=1
+      shift
+      ;;
+  esac
+done
+
+command -v claude >/dev/null 2>&1 || die "claude command not found in PATH"
+[[ -d "$target_dir" ]] || die "directory not found: $target_dir"
+
+target_dir="$(cd "$target_dir" && pwd -P)"
+
+case "$spawn" in
+  auto|same-dir|worktree|session) ;;
+  *) die "invalid spawn mode '$spawn' (expected auto, same-dir, worktree, or session)" ;;
+esac
+
+is_git_repo=0
+git_root=""
+git_branch=""
+if git -C "$target_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  is_git_repo=1
+  git_root="$(git -C "$target_dir" rev-parse --show-toplevel 2>/dev/null || true)"
+  git_branch="$(git -C "$target_dir" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+  [[ -n "$git_branch" ]] || git_branch="$(git -C "$target_dir" rev-parse --short HEAD 2>/dev/null || true)"
+fi
+
+if [[ "$spawn" == "auto" ]]; then
+  if [[ "$is_git_repo" -eq 1 ]]; then
+    spawn="worktree"
+  else
+    spawn="same-dir"
+  fi
+fi
+
+if [[ -z "$session_name" ]]; then
+  if [[ "$is_git_repo" -eq 1 && -n "$git_root" ]]; then
+    repo_name="${git_root:t}"
+    if [[ -n "$git_branch" ]]; then
+      session_name="${repo_name} ${git_branch} remote"
+    else
+      session_name="${repo_name} remote"
+    fi
+  else
+    folder_name="${target_dir:t}"
+    [[ -n "$folder_name" ]] || folder_name="Claude"
+    session_name="${folder_name} remote"
+  fi
+fi
+
+cmd=(claude remote-control --name "$session_name" --spawn "$spawn" --capacity "$capacity")
+[[ -n "$permission_mode" ]] && cmd+=(--permission-mode "$permission_mode")
+[[ -n "$create_session_flag" ]] && cmd+=("$create_session_flag")
+cmd+=("${passthrough[@]}")
+
+print -- "Starting Claude Remote Control"
+print -- "Directory: $target_dir"
+print -- "Name:      $session_name"
+print -- "Spawn:     $spawn"
+print -- ""
+
+if [[ "$print_only" -eq 1 ]]; then
+  print -r -- "cd ${(q)target_dir}"
+  print -r -- "env -u ANTHROPIC_API_KEY ${(q)cmd[@]}"
+  exit 0
+fi
+
+cd "$target_dir"
+exec env -u ANTHROPIC_API_KEY "${cmd[@]}"

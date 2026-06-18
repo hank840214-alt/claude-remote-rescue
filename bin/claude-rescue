@@ -1,0 +1,267 @@
+#!/usr/bin/env zsh
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  claude-rescue [path] [options]
+
+Check, start, or restart Claude remote-control from a stable tmux session.
+
+Options:
+      --status                       Show tmux and claude remote-control status
+      --restart                      Kill the tmux session before starting
+      --tmux-name <name>             tmux session name (default: claude-remote-control)
+      --conversation-title <title>   Claude Desktop conversation title for UI rescue notes
+      --session-title <title>        Alias for --conversation-title
+      --title <title>                Alias for --conversation-title
+  -n, --name <name>                  Remote-control environment name passed to claude-remote
+  -s, --spawn <mode>                 auto, same-dir, worktree, or session
+      --same-dir                     Pass through to claude-remote
+      --worktree                     Pass through to claude-remote
+      --session                      Pass through to claude-remote
+      --capacity <N>                 Pass through to claude-remote
+      --permission-mode <mode>       Pass through to claude-remote
+      --no-create-session-in-dir     Pass through to claude-remote
+      --create-session-in-dir        Pass through to claude-remote
+      --print                        Print the resolved commands without starting
+      --no-tmux                      Run claude-remote in the foreground
+      --tail-lines <N>               tmux capture lines after start/status (default: 80)
+  -h, --help                         Show this help
+
+Examples:
+  claude-rescue --status
+  claude-rescue ~/project --title "My Claude session" --name "Codex remote" --same-dir
+  claude-rescue ~/project --restart --name "Codex remote"
+EOF
+}
+
+die() {
+  print -u2 -- "claude-rescue: $*"
+  exit 1
+}
+
+script_dir="${0:A:h}"
+default_claude_remote="${script_dir}/claude-remote"
+[[ -x "$default_claude_remote" ]] || default_claude_remote="${HOME}/.local/bin/claude-remote"
+claude_remote="${CLAUDE_REMOTE_BIN:-$default_claude_remote}"
+if [[ ! -x "$claude_remote" ]]; then
+  if command -v claude-remote >/dev/null 2>&1; then
+    claude_remote="$(command -v claude-remote)"
+  else
+    die "claude-remote not found"
+  fi
+fi
+
+target_dir="${PWD}"
+target_set=0
+tmux_name="${CLAUDE_RESCUE_TMUX_NAME:-claude-remote-control}"
+conversation_titles=()
+status_only=0
+restart=0
+print_only=0
+no_tmux=0
+tail_lines=80
+remote_args=()
+
+need_value() {
+  [[ $# -ge 2 ]] || die "$1 requires a value"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --status)
+      status_only=1
+      shift
+      ;;
+    --restart)
+      restart=1
+      shift
+      ;;
+    --print)
+      print_only=1
+      shift
+      ;;
+    --no-tmux)
+      no_tmux=1
+      shift
+      ;;
+    --tmux-name)
+      need_value "$@"
+      tmux_name="$2"
+      shift 2
+      ;;
+    --tmux-name=*)
+      tmux_name="${1#--tmux-name=}"
+      shift
+      ;;
+    --tail-lines)
+      need_value "$@"
+      tail_lines="$2"
+      shift 2
+      ;;
+    --tail-lines=*)
+      tail_lines="${1#--tail-lines=}"
+      shift
+      ;;
+    --conversation-title)
+      need_value "$@"
+      conversation_titles+=("$2")
+      shift 2
+      ;;
+    --conversation-title=*)
+      conversation_titles+=("${1#--conversation-title=}")
+      shift
+      ;;
+    --session-title|--title)
+      need_value "$@"
+      conversation_titles+=("$2")
+      shift 2
+      ;;
+    --session-title=*|--title=*)
+      conversation_titles+=("${1#*=}")
+      shift
+      ;;
+    -n|--name)
+      need_value "$@"
+      remote_args+=("$1" "$2")
+      shift 2
+      ;;
+    --name=*)
+      remote_args+=("$1")
+      shift
+      ;;
+    -s|--spawn|--capacity|--permission-mode)
+      need_value "$@"
+      remote_args+=("$1" "$2")
+      shift 2
+      ;;
+    --spawn=*|--capacity=*|--permission-mode=*)
+      remote_args+=("$1")
+      shift
+      ;;
+    --same-dir|--worktree|--session|--no-create-session-in-dir|--create-session-in-dir)
+      remote_args+=("$1")
+      shift
+      ;;
+    --)
+      shift
+      remote_args+=("$@")
+      break
+      ;;
+    -*)
+      remote_args+=("$1")
+      shift
+      ;;
+    *)
+      if [[ "$target_set" -eq 1 ]]; then
+        die "multiple paths provided: '$target_dir' and '$1'"
+      fi
+      target_dir="$1"
+      target_set=1
+      shift
+      ;;
+  esac
+done
+
+[[ -n "$tmux_name" ]] || die "tmux name cannot be empty"
+[[ "$tail_lines" == <-> ]] || die "tail lines must be a non-negative integer"
+[[ -d "$target_dir" ]] || die "directory not found: $target_dir"
+target_dir="$(cd "$target_dir" && pwd -P)"
+
+ensure_tmux() {
+  command -v tmux >/dev/null 2>&1 || die "tmux not found in PATH"
+}
+
+has_tmux_session() {
+  tmux has-session -t "$tmux_name" >/dev/null 2>&1
+}
+
+print_status() {
+  ensure_tmux
+  print -- "Claude Remote Rescue Status"
+  print -- "Directory:     $target_dir"
+  print -- "tmux session:  $tmux_name"
+  if (( ${#conversation_titles[@]} > 0 )); then
+    print -- "Conversations:"
+    for title in "${conversation_titles[@]}"; do
+      print -- "  - $title"
+    done
+  fi
+  if has_tmux_session; then
+    print -- "tmux:          running"
+    tmux capture-pane -pt "$tmux_name" -S "-$tail_lines" 2>/dev/null || true
+  else
+    print -- "tmux:          not running"
+  fi
+  if pgrep -af "claude remote-control" >/dev/null 2>&1; then
+    print -- ""
+    print -- "Processes:"
+    matched_pids=("${(@f)$(pgrep -f "claude remote-control" 2>/dev/null || true)}")
+    if (( ${#matched_pids[@]} > 0 )); then
+      ps -p "${(j:,:)matched_pids}" -o pid=,command= || pgrep -f "claude remote-control" || true
+    fi
+  else
+    print -- ""
+    print -- "Processes:     none matching 'claude remote-control'"
+  fi
+}
+
+print_ui_note() {
+  (( ${#conversation_titles[@]} > 0 )) || return 0
+  print -- ""
+  print -- "UI rescue targets:"
+  for title in "${conversation_titles[@]}"; do
+    print -- "  - Open/unarchive Claude Desktop conversation: $title"
+  done
+  print -- "  Then send exactly: /remote-control"
+  print -- "  Do not rename conversations."
+}
+
+if [[ "$status_only" -eq 1 ]]; then
+  print_status
+  print_ui_note
+  exit 0
+fi
+
+if [[ "$print_only" -eq 1 ]]; then
+  print_status
+  print -- ""
+  print -- "claude-remote dry run:"
+  "$claude_remote" "$target_dir" "${remote_args[@]}" --print
+  print -- ""
+  print -- "tmux command:"
+  print -r -- "tmux new-session -d -s ${(q)tmux_name} -c ${(q)target_dir} ${(q)claude_remote} ${(q)target_dir} ${(q)remote_args[@]}"
+  print_ui_note
+  exit 0
+fi
+
+if [[ "$no_tmux" -eq 1 ]]; then
+  print_ui_note
+  exec "$claude_remote" "$target_dir" "${remote_args[@]}"
+fi
+
+if [[ "$restart" -eq 1 ]] && has_tmux_session; then
+  ensure_tmux
+  tmux kill-session -t "$tmux_name"
+fi
+
+if has_tmux_session; then
+  print -- "tmux session already running: $tmux_name"
+  print_status
+  print_ui_note
+  exit 0
+fi
+
+command_string="exec ${(q)claude_remote} ${(q)target_dir} ${(q)remote_args[@]}"
+ensure_tmux
+tmux new-session -d -s "$tmux_name" -c "$target_dir" "$command_string"
+sleep 1
+
+print -- "Started Claude remote-control tmux session: $tmux_name"
+print_status
+print_ui_note
