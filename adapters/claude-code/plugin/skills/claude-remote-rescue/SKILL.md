@@ -5,8 +5,6 @@ description: Rescue Claude Code Desktop and Claude remote-control sessions on ma
 
 # Claude Remote Rescue
 
-## Overview
-
 Recover Claude remote-control in two layers: keep the local remote-control server alive from the right directory, then use Claude Desktop UI rescue only when an exact archived conversation must be reopened.
 
 Distinguish these names before acting:
@@ -14,17 +12,7 @@ Distinguish these names before acting:
 - **Claude conversation/session title**: the chat in Claude Desktop. Do not rename it unless the user explicitly asks.
 - **Remote-control environment name**: the label passed to `claude remote-control --name`. Prefer a generic label unless the user explicitly asks for a custom one.
 
-## Quick Start
-
-Use the installed commands:
-
-```bash
-claude-rescue --status
-claude-rescue /path/to/repo --title "Exact Claude session title" --name "Codex remote" --same-dir
-claude-rescue /path/to/repo --restart --title "Exact Claude session title" --name "Codex remote"
-```
-
-## Rescue Workflow
+## Workflow
 
 1. Parse the user's target.
    - If they gave one or more conversation titles, use each title exactly.
@@ -48,17 +36,9 @@ claude-rescue /path/to/repo --restart --title "Exact Claude session title" --nam
    - Capture a Claude Desktop screenshot after sending `/remote-control` or otherwise confirm the command is visible in the correct conversation.
    - If login, 2FA, CAPTCHA, password, or a security prompt appears, stop and ask the user to handle it.
 
-## UI Rules
+## Rules
 
 - Use a computer-control capability before directly controlling local Mac apps.
-- It is acceptable to use AppleScript Accessibility for precise text-field and button actions when available.
 - Never rename a Claude conversation while trying to remote-control it.
 - Treat unarchive as a cloud-state action: if the user asked to unarchive a named session, proceed; otherwise confirm before changing archive state.
 - Keep phone remote-desktop as a fallback, not the primary rescue path.
-
-## Common Requests
-
-- "Remote control `<exact session title>`" means open that Claude conversation and send `/remote-control`; it does not mean rename anything.
-- "Claude archived itself" means check local remote-control status first, then unarchive the exact conversation if the user needs the same old chat.
-- "Open a new remote-control session for this repo" means run `claude-rescue <repo>` and use the generated remote-control URL/environment.
-- "Rescue these sessions: `<title A>`, `<title B>`" means handle them one at a time, verifying the visible Claude conversation before sending `/remote-control`.

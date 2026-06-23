@@ -27,6 +27,7 @@ Options:
       --print                        Print the resolved commands without starting
       --no-tmux                      Run claude-remote in the foreground
       --tail-lines <N>               tmux capture lines after start/status (default: 80)
+      --show-tmux-output             Include tmux pane output in status
   -h, --help                         Show this help
 
 Examples:
@@ -62,6 +63,7 @@ restart=0
 print_only=0
 no_tmux=0
 tail_lines=80
+show_tmux_output=0
 remote_args=()
 
 need_value() {
@@ -88,6 +90,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-tmux)
       no_tmux=1
+      shift
+      ;;
+    --show-tmux-output)
+      show_tmux_output=1
       shift
       ;;
     --tmux-name)
@@ -194,7 +200,11 @@ print_status() {
   fi
   if has_tmux_session; then
     print -- "tmux:          running"
-    tmux capture-pane -pt "$tmux_name" -S "-$tail_lines" 2>/dev/null || true
+    if [[ "$show_tmux_output" -eq 1 ]]; then
+      tmux capture-pane -pt "$tmux_name" -S "-$tail_lines" 2>/dev/null | redact_sensitive || true
+    else
+      print -- "tmux output:   hidden (pass --show-tmux-output to display)"
+    fi
   else
     print -- "tmux:          not running"
   fi
@@ -209,6 +219,12 @@ print_status() {
     print -- ""
     print -- "Processes:     none matching 'claude remote-control'"
   fi
+}
+
+redact_sensitive() {
+  sed -E \
+    -e 's#https://claude\.ai/code\?environment=env_[A-Za-z0-9]+#https://claude.ai/code?environment=<redacted>#g' \
+    -e 's#(csrf_token[ =:]+)[0-9a-fA-F-]{20,}#\1<redacted>#g'
 }
 
 print_ui_note() {

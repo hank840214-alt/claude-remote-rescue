@@ -1,0 +1,17 @@
+{
+  "name": "claude-remote-rescue",
+  "version": "0.1.0",
+  "description": "Claude Code skill and CLI helpers for rescuing Claude remote-control sessions.",
+  "author": {
+    "name": "Claude Remote Rescue contributors"
+  },
+  "license": "UNLICENSED",
+  "homepage": "https://github.com/hank840214-alt/claude-remote-rescue",
+  "repository": "https://github.com/hank840214-alt/claude-remote-rescue",
+  "keywords": [
+    "claude-code",
+    "remote-control",
+    "skills",
+    "macos"
+  ]
+}
